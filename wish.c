@@ -11,7 +11,18 @@
 void printError_exit() {
             char error_message[30] = "An error has occurred\n";
             write(STDERR_FILENO, error_message, strlen(error_message));
+            exit(0);
+}
+
+void printError_exit_1() {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
             exit(1);
+}
+
+void printError() {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
 }
 
 void splitCommand ( char ** tokens, char command[512], size_t buffer_size, char* delim, int* counts) {
@@ -28,9 +39,7 @@ void splitCommand ( char ** tokens, char command[512], size_t buffer_size, char*
             buffer_size += buffer_size;
             tokens = realloc(tokens, buffer_size * sizeof(char*));
             if (!tokens) {
-                char error_message[30] = "An error has occurred\n";
-                write(STDERR_FILENO, error_message, strlen(error_message));
-                exit(0);
+                printError_exit();
             }
         }
         token = strtok(NULL, delim);
@@ -57,12 +66,10 @@ int execBuiltIns ( char **paths, size_t buffer_size, char **arguments, int redir
     //check for cd 
     else if (strcmp(arguments[0] , "cd") == 0) {
         if (arguments[2] != NULL) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
+            printError();
         }
         else if (chdir(arguments[1]) != 0) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));                
+            printError();             
         }
         return 0;   
     }
@@ -70,8 +77,7 @@ int execBuiltIns ( char **paths, size_t buffer_size, char **arguments, int redir
     //check for exit
     else if ( strcmp(arguments[0], "exit") == 0) {
         if (arguments[1] != NULL) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
+            printError();
         }
         else {
             exit(0);
@@ -99,8 +105,7 @@ int execBuiltIns ( char **paths, size_t buffer_size, char **arguments, int redir
                     dup2(fd, fileno(stderr));                                
                 }
                 if ( execv(ls_path , arguments) != 0) {
-                    char error_message[30] = "An error has occurred\n";
-                    write(STDERR_FILENO, error_message, strlen(error_message));
+                    printError();
                 } 
 
             }
@@ -111,32 +116,11 @@ int execBuiltIns ( char **paths, size_t buffer_size, char **arguments, int redir
     }
     // if no executables in this path print error 
     if (!flag1 ) {
-                char error_message[30] = "An error has occurred\n";
-                write(STDERR_FILENO, error_message, strlen(error_message));
+        printError();
     }
     return -1;
 }
 
-// char* strip( char* str ) {
-
-//     while( (*str != ' ' ) && ( *str != '\0' ))  {
-//         str++;
-
-//     }
-
-//     if(*str == 0)
-//         return str;
-    
-//     char *end;
-
-//     // Trim trailing space
-//     end = str + strlen(str) - 1;
-//     while(end > str && (*end == ' ')) end--;
-
-//     end[1] = '\0';
-
-//     return str;
-// }
 int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
 
    //if redirect split w.r.t redirect
@@ -149,15 +133,11 @@ int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
         splitCommand (commands, command, buffer_size, ">" , &count);
         //first string is > 
         if ( strcmp((commands[0]), ">") == 0 ) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
-            exit(0);
+            printError_exit();
         }
         // if output file is not present
         else if ( !(commands[1]) || commands[2])  {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
-            exit(0);         
+            printError_exit();        
         }
         else {
             command = commands[0];
@@ -166,9 +146,7 @@ int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
 
             //more than one output file
             if (filepath_arr[1] ){
-                char error_message[30] = "An error has occurred\n";
-                write(STDERR_FILENO, error_message, strlen(error_message));
-                exit(0);  
+                printError_exit();
             }
             filepath = filepath_arr[0];
         }
@@ -197,7 +175,7 @@ int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
     return child_status;
 }
 
-int check_correctness ( char command_str[512], size_t buffer_size) {
+int check_correctness ( char *command_str, size_t buffer_size) {
         char** tokens2 = malloc (buffer_size * sizeof(char*));
         int count = 0;
         splitCommand ( tokens2, command_str, buffer_size, " ", &count );
@@ -214,23 +192,21 @@ int check_correctness ( char command_str[512], size_t buffer_size) {
         }
 
         if( fi_count !=  if_count) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
-            exit(0);
+            printError_exit();
         }
 
         return 1;
 
 }
 
-void shell_execute ( char command[512], char **paths, size_t buffer_size ) {
+void shell_execute ( char *command, char **paths, size_t buffer_size ) {
 
     //See if it contains if condition
     int correct = 0;
     if ( strstr(command, "if") != NULL ) {
         // handle if checks        
         correct = check_correctness ( command,  buffer_size);
-        //recursively execute shell commands
+        //execute shell commands separated by if or then 
         if (correct) {
             int temp_index;
             temp_index = 0;
@@ -267,9 +243,10 @@ void shell_execute ( char command[512], char **paths, size_t buffer_size ) {
                     }      
                 }
 
-
+                // call the process with extracted command
                 int child_status = exec_shell_command(new_command, paths, buffer_size);
 
+                // compare the return value 
                 if (if_flag) {
                     int success = 0;
                     if(WIFEXITED(child_status)) {
@@ -285,15 +262,12 @@ void shell_execute ( char command[512], char **paths, size_t buffer_size ) {
                         success = 1 ;      
                     }
                     else {
-                        char error_message[30] = "An error has occurred\n";
-                        write(STDERR_FILENO, error_message, strlen(error_message));
-                        exit(0);   
+                        printError_exit();  
                     }
                     if ( !success ) {
                         return;
                     }
                 }
-
             }
         }
     }
@@ -306,6 +280,8 @@ int main(int argc, char *argv[]) {
 
     size_t buffer_size = 512;
     char** paths = malloc (buffer_size * sizeof(char*));
+
+    //default path
     paths[0] = "/bin";
 
     if ( argc == 2 ) {
@@ -317,34 +293,34 @@ int main(int argc, char *argv[]) {
         fp = fopen(argv[1], "r");  
     
         if (fp == NULL) {
-            printError_exit(); 
+            printError_exit_1(); 
         }
-
         while ((read = getline(&line, &len, fp)) != -1) {
             line[strlen(line)-1] ='\0';
             shell_execute (line, paths, buffer_size);  
         }
     }
+
     //Multiple batchmode shell files
     else if ( argc > 2 ) {
-        printError_exit();
+        printError_exit_1();
     }
     else {
         while(1) {
-            printf("wish > ");
+            printf("my_prompt > ");
             char* buffer = (char *) malloc(buffer_size * sizeof(char));
 
             if (buffer == NULL) {
-                printError_exit();
+                printError_exit_1();
             }
 
             //get the input argument string
             if (getline(&buffer, &buffer_size, stdin) == -1){
                 if (feof(stdin)) {
-                    exit(EXIT_SUCCESS);  // We recieved an EOF
+                    exit(0);  // We recieved an EOF
                 } else  {
                     perror("readline");
-                    exit(EXIT_FAILURE);
+                    exit(1);
                 }
             }
             buffer[strlen(buffer)-1] ='\0';
