@@ -117,26 +117,26 @@ int execBuiltIns ( char **paths, size_t buffer_size, char **arguments, int redir
     return -1;
 }
 
-char* strip( char* str ) {
+// char* strip( char* str ) {
 
-    while( (*str != ' ' ) && ( *str != '\0' ))  {
-        str++;
+//     while( (*str != ' ' ) && ( *str != '\0' ))  {
+//         str++;
 
-    }
+//     }
 
-    if(*str == 0)
-        return str;
+//     if(*str == 0)
+//         return str;
     
-    char *end;
+//     char *end;
 
-    // Trim trailing space
-    end = str + strlen(str) - 1;
-    while(end > str && (*end == ' ')) end--;
+//     // Trim trailing space
+//     end = str + strlen(str) - 1;
+//     while(end > str && (*end == ' ')) end--;
 
-    end[1] = '\0';
+//     end[1] = '\0';
 
-    return str;
-}
+//     return str;
+// }
 int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
 
    //if redirect split w.r.t redirect
@@ -146,22 +146,31 @@ int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
     int redirect = 0;
     int count = 0;
     if ( strchr(command, '>') != NULL ) {
-        splitCommand ( commands, command, buffer_size, ">" , &count);
+        splitCommand (commands, command, buffer_size, ">" , &count);
         //first string is > 
-        if ( strcmp(strip (commands[0]), ">") == 0 ) {
+        if ( strcmp((commands[0]), ">") == 0 ) {
             char error_message[30] = "An error has occurred\n";
             write(STDERR_FILENO, error_message, strlen(error_message));
             exit(0);
         }
         // if output file is not present
-        else if ( !(commands[1]) || (strchr(strip(commands[1]), ' ') != NULL))  {
+        else if ( !(commands[1]) || commands[2])  {
             char error_message[30] = "An error has occurred\n";
             write(STDERR_FILENO, error_message, strlen(error_message));
             exit(0);         
         }
         else {
             command = commands[0];
-            filepath = commands[1];
+            char** filepath_arr = malloc (buffer_size * sizeof(char*));
+            splitCommand ( filepath_arr, commands[1], buffer_size, " " , &count);
+
+            //more than one output file
+            if (filepath_arr[1] ){
+                char error_message[30] = "An error has occurred\n";
+                write(STDERR_FILENO, error_message, strlen(error_message));
+                exit(0);  
+            }
+            filepath = filepath_arr[0];
         }
         redirect = 1;         
     }
@@ -183,10 +192,6 @@ int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
         return 0;
     }
 
-    // //check for other
-    // if ( strcmp(tokens[0], "if" ) == 0) { 
-    //     execif_statements ( paths, buffer_size, arguments, 0, redirect, filepath ) ;
-    // }
 
     int child_status = execBuiltIns(paths, buffer_size, arguments, redirect, filepath);
     return child_status;
