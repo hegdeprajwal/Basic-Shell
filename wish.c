@@ -6,9 +6,19 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <string.h>
 
-void splitCommand ( char ** tokens, char* command, size_t buffer_size) {
-    char* token = strtok(command, " ");
+void printError_exit() {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            exit(1);
+}
+
+void splitCommand ( char ** tokens, char command[512], size_t buffer_size, char* delim, int* counts) {
+    char* token = malloc ( buffer_size * sizeof(char));
+    char new_command [512];
+    strcpy(new_command, command);
+    token = strtok(new_command, delim);
     //If the allocated size is not enough double the size
     int count = 0;
     while (token != NULL) {
@@ -20,20 +30,224 @@ void splitCommand ( char ** tokens, char* command, size_t buffer_size) {
             if (!tokens) {
                 char error_message[30] = "An error has occurred\n";
                 write(STDERR_FILENO, error_message, strlen(error_message));
-                exit(1);
+                exit(0);
             }
         }
-        token = strtok(NULL, " ");
+        token = strtok(NULL, delim);
     }
     tokens[count] = NULL;
+    *counts = count;
     return ;
 }
 
-void shell_execute ( char *command, char **paths, size_t buffer_size ) {
+int execBuiltIns ( char **paths, size_t buffer_size, char **arguments, int redirect, char* filepath ) {
 
+    //check for path 
+    if ( strcmp (arguments[0], "path") == 0) {
+        //copy the rest of tokens to path
+        if ( arguments[1] == NULL ) {
+            memset(paths, '\0', buffer_size);
+        }
+        for ( int i = 1; arguments[i] != NULL ; i++) {
+            paths[i-1] = arguments[i];
+        }
+        return 0;
+    }
+
+    //check for cd 
+    else if (strcmp(arguments[0] , "cd") == 0) {
+        if (arguments[2] != NULL) {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
+        }
+        else if (chdir(arguments[1]) != 0) {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));                
+        }
+        return 0;   
+    }
+
+    //check for exit
+    else if ( strcmp(arguments[0], "exit") == 0) {
+        if (arguments[1] != NULL) {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
+        }
+        else {
+            exit(0);
+        }
+        return 0;
+    }
+
+    char** path_ptr = NULL;
+    int flag1 = 0;
+    for ( path_ptr = paths ; *path_ptr != NULL ; path_ptr++) {
+        //Append the ls to the paths and check 
+        char* ls_path = malloc (buffer_size * sizeof(char*));
+        strcpy(ls_path, *path_ptr);
+        strcat(ls_path, "/");
+        strcat(ls_path, arguments[0]);
+        if ( access(ls_path, X_OK) == 0 ) {
+            flag1 = 1;
+
+            //child process starts here
+            pid_t pid = fork();
+            if ( pid == 0) {
+                if ( redirect ) {
+                    int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    dup2(fd, fileno(stdout));
+                    dup2(fd, fileno(stderr));                                
+                }
+                if ( execv(ls_path , arguments) != 0) {
+                    char error_message[30] = "An error has occurred\n";
+                    write(STDERR_FILENO, error_message, strlen(error_message));
+                } 
+
+            }
+            int status; 
+            waitpid(pid, &status, 0);
+            return status;
+        }
+    }
+    // if no executables in this path print error 
+    if (!flag1 ) {
+                char error_message[30] = "An error has occurred\n";
+                write(STDERR_FILENO, error_message, strlen(error_message));
+    }
+    return -1;
+}
+
+// void execif_statements ( char **paths, size_t buffer_size, char **arguments, int start, int redirect, char* filepath ) {
+//     int temp_index = 0;
+//     int error = 0;
+//     int if_count = 0;
+    
+//     while ( arguments[temp_index] ) {
+
+//         char ** new_arguments = malloc(buffer_size * sizeof(char*));
+//         char * operator = NULL;
+//         int value = 0;
+//         int if_flag = 0;
+
+//         if (( strcmp(arguments[temp_index], "then") == 0 ) || ( strcmp(arguments[temp_index], "fi") == 0 ) ) {
+//             if ( strcmp(arguments[temp_index], "fi") == 0  )  {
+//                if_count --; 
+//             }
+//             temp_index ++; 
+//             continue;
+            
+//         }
+//         else if ( strcmp(arguments[temp_index], "if") == 0 ) {
+//             temp_index ++; // increment to skip if
+//             int j = 0;
+//             while( (strcmp(arguments[temp_index], "==") != 0) && (strcmp(arguments[temp_index], "!=") != 0)) {
+//                 new_arguments[j++] = arguments[temp_index++];
+//             }
+//             new_arguments[j] = '\0';
+//             operator = arguments[temp_index++]; 
+//             value = atoi (arguments[temp_index++]);
+//             if_flag = 1; 
+//             if_count ++;                               // flag if 
+//         }
+//         else {
+//             // All the if encountered fi throw error 
+//             if ( if_count == 0 ) {
+//                 error = 1;
+//                 break;
+//             }
+//             int j = 0;
+//             while( strcmp(arguments[temp_index], "fi") != 0) {
+//                 new_arguments[j++] = arguments[temp_index++];
+//             }
+//             new_arguments[j] = '\0';      
+//         }
+
+
+//         int child_status = execBuiltIns(paths, buffer_size, new_arguments, redirect, filepath);
+
+//         if (if_flag) {
+//             int success = 0;
+//             if(WIFEXITED(child_status)) {
+//                 child_status = WEXITSTATUS(child_status);
+//             }
+        
+//             if( strcmp(operator, "==") == 0) {
+//                 if ( child_status == value) 
+//                     success = 1 ;
+//             }
+//             else if (strcmp(operator, "!=") == 0) {
+//                 if ( child_status != value) 
+//                     success = 1 ;      
+//             }
+//             else {
+//                 char error_message[30] = "An error has occurred\n";
+//                 write(STDERR_FILENO, error_message, strlen(error_message));
+//                 exit(0);   
+//             }
+
+//             if ( !success ) {
+//                 return;
+//             }
+//         }
+//     }
+//     if ( error ) {
+//         printError_exit();
+//     }
+
+// }
+
+char* strip( char* str ) {
+
+    while( (*str != ' ' ) && ( *str != '\0' ))  {
+        str++;
+
+    }
+
+    if(*str == 0)
+        return str;
+    
+    char *end;
+
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && (*end == ' ')) end--;
+
+    end[1] = '\0';
+
+    return str;
+}
+int exec_shell_command ( char *command, char **paths, size_t buffer_size ) {
+
+   //if redirect split w.r.t redirect
+    char** commands = malloc (buffer_size * sizeof(char*));
+    //get the file path and check for more than 1 file and no file mentioned
+    char *filepath = NULL;
+    int redirect = 0;
+    int count = 0;
+    if ( strchr(command, '>') != NULL ) {
+        splitCommand ( commands, command, buffer_size, ">" , &count);
+        //first string is > 
+        if ( strcmp(strip (commands[0]), ">") == 0 ) {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            exit(0);
+        }
+        // if output file is not present
+        else if ( !(commands[1]) || (strchr(strip(commands[1]), ' ') != NULL))  {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            exit(0);         
+        }
+        else {
+            command = commands[0];
+            filepath = commands[1];
+        }
+        redirect = 1;         
+    }
+    
     //Tokenize the string
     char** tokens = malloc (buffer_size * sizeof(char*));
-    splitCommand ( tokens, command, buffer_size );
+    splitCommand ( tokens, command, buffer_size, " " , &count);
 
     //Copying the tokens to arguments 
     char** arguments= malloc(buffer_size * sizeof (char*));
@@ -44,113 +258,127 @@ void shell_execute ( char *command, char **paths, size_t buffer_size ) {
     }
     arguments[i] = NULL;
 
-    //Iterate and search if redirection operator is present 
-    token_ptr = NULL;
-    int redirect = 0;
-    int cnt = 0;
-    for ( token_ptr = arguments ; *token_ptr != NULL ; token_ptr++, cnt++) {
-        if ( strcmp(*token_ptr, ">") == 0 ) {
-            redirect = 1;
-            break;
-        }
+    if ( !tokens[0]) {
+        return 0;
     }
 
-    //get the file path and check for more than 1 file and no file mentioned
-    char *filepath = NULL;
-    if ( redirect ) {
-        arguments[cnt] = '\0';
-        if (*(token_ptr+1) == NULL ) {
+    // //check for other
+    // if ( strcmp(tokens[0], "if" ) == 0) { 
+    //     execif_statements ( paths, buffer_size, arguments, 0, redirect, filepath ) ;
+    // }
+
+    int child_status = execBuiltIns(paths, buffer_size, arguments, redirect, filepath);
+    return child_status;
+}
+
+int check_correctness ( char command_str[512], size_t buffer_size) {
+        char** tokens2 = malloc (buffer_size * sizeof(char*));
+        int count = 0;
+        splitCommand ( tokens2, command_str, buffer_size, " ", &count );
+
+        int fi_count = 0;
+        int if_count = 0;
+        for ( int i = count-1; i>0 ; i--) {
+            if ( strcmp(tokens2[i], "fi" ) == 0) fi_count++;
+            else break;
+        }
+
+        for ( int i = 0; i < count ; i++) {
+            if ( strcmp(tokens2[i], "if" ) == 0) if_count++;
+        }
+
+        if( fi_count !=  if_count) {
             char error_message[30] = "An error has occurred\n";
             write(STDERR_FILENO, error_message, strlen(error_message));
-            exit(1);
+            exit(0);
         }
-        else if ( *(token_ptr+2) != NULL) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
-            exit(1);
-        } 
-        else {
-            cnt++ ; 
-            filepath = strdup(arguments[cnt++]);
-            arguments[cnt] = '\0';
-        } 
-    
-        }    
 
-        // check for path 
-        if ( strcmp (tokens[0], "path") == 0) {
-            //copy the rest of tokens to path
-            if ( arguments[1] == NULL ) {
-                memset(paths, '\0', buffer_size);
-            }
-            for ( int i = 1; arguments[i] != NULL ; i++) {
-                paths[i-1] = arguments[i];
-            }
-        }
-        // check for cd 
-        else if (strcmp(tokens[0] , "cd") == 0) {
-            if (tokens[2] != NULL) {
-                char error_message[30] = "An error has occurred\n";
-                write(STDERR_FILENO, error_message, strlen(error_message));
-            }
-           else if (chdir(tokens[1]) != 0) {
-                char error_message[30] = "An error has occurred\n";
-                write(STDERR_FILENO, error_message, strlen(error_message));                
-           }   
-        }
-        //check for exit
-        else if ( strcmp(tokens[0], "exit") == 0) {
-            if (tokens[1] != NULL) {
-                char error_message[30] = "An error has occurred\n";
-                write(STDERR_FILENO, error_message, strlen(error_message));
-            }
-            else {
-                exit(0);
-            }
-        }
-        //check for other
-        else {
-            char** path_ptr = NULL;
-            int flag1 = 0;
-            for ( path_ptr = paths ; *path_ptr != NULL ; path_ptr++) {
-                //Append the ls to the paths and check 
-                char* ls_path = malloc (buffer_size * sizeof(char*));
-                strcpy(ls_path, *path_ptr);
-                strcat(ls_path, "/");
-                strcat(ls_path, arguments[0]);
-                if ( access(ls_path, X_OK) == 0 ) {
-                    flag1 = 1;
+        return 1;
 
-                    //child process starts here
-                    pid_t pid = fork();
-                    if ( pid == 0) {
-                        if ( redirect ) {
-                            int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                            dup2(fd, fileno(stdout));
-                            dup2(fd, fileno(stderr));                                
-                        }
-                        if ( execv(ls_path , arguments) != 0) {
-                            char error_message[30] = "An error has occurred\n";
-                            write(STDERR_FILENO, error_message, strlen(error_message));
-                        } 
+}
 
+void shell_execute ( char command[512], char **paths, size_t buffer_size ) {
+
+    //See if it contains if condition
+    int correct = 0;
+    if ( strstr(command, "if") != NULL ) {
+        // handle if checks        
+        correct = check_correctness ( command,  buffer_size);
+        //recursively execute shell commands
+        if (correct) {
+            int temp_index;
+            temp_index = 0;
+            char** tokens3 = malloc (buffer_size * sizeof(char*));
+            int count = 0;
+            splitCommand ( tokens3, command, buffer_size, " ", &count );
+
+            while ( tokens3[temp_index] && (temp_index < count )) {
+                char * operator = NULL;
+                int value = 0;
+                int if_flag = 0;
+                char* new_command = malloc (buffer_size * sizeof(char));
+
+                if (( strcmp(tokens3[temp_index], "then") == 0 ) || ( strcmp(tokens3[temp_index], "fi") == 0 ) ) {
+                    temp_index ++; 
+                    continue;
+                }
+                else if ( strcmp(tokens3[temp_index], "if") == 0 ) {
+
+                    temp_index ++; // increment to skip if
+                    while( (strcmp(tokens3[temp_index], "==") != 0 ) && (strcmp(tokens3[temp_index], "!=") != 0) && strcmp(tokens3[temp_index], "&|") != 0) {
+                        strcat(new_command, " ");    
+                        strcat(new_command, tokens3[temp_index++]);
                     }
-                    int status; 
-                    waitpid(pid, &status, 0);
+                    operator = tokens3[temp_index++]; 
+                    value = atoi (tokens3[temp_index++]);
+                    if_flag = 1; // flag if 
                 }
-                // if no executables in this path print error 
-                if (!flag1 ) {
-                            char error_message[30] = "An error has occurred\n";
-                            write(STDERR_FILENO, error_message, strlen(error_message));
+                else {
+                    // All the if encountered fi throw error 
+                    while( strcmp(tokens3[temp_index], "fi") != 0) {
+                        strcat(new_command, " ");
+                        strcat(new_command, tokens3[temp_index++]);
+                    }      
                 }
-            
-            } 
+
+
+                int child_status = exec_shell_command(new_command, paths, buffer_size);
+
+                if (if_flag) {
+                    int success = 0;
+                    if(WIFEXITED(child_status)) {
+                        child_status = WEXITSTATUS(child_status);
+                    }
+        
+                    if( strcmp(operator, "==") == 0) {
+                        if ( child_status == value) 
+                        success = 1 ;
+                    }
+                    else if (strcmp(operator, "!=") == 0) {
+                        if ( child_status != value) 
+                        success = 1 ;      
+                    }
+                    else {
+                        char error_message[30] = "An error has occurred\n";
+                        write(STDERR_FILENO, error_message, strlen(error_message));
+                        exit(0);   
+                    }
+                    if ( !success ) {
+                        return;
+                    }
+                }
+
+            }
         }
     }
+    else {
+        int status = exec_shell_command ( command , paths, buffer_size);
+    }
+}
 
 int main(int argc, char *argv[]) {
 
-    size_t buffer_size = 64;
+    size_t buffer_size = 512;
     char** paths = malloc (buffer_size * sizeof(char*));
     paths[0] = "/bin";
 
@@ -160,18 +388,20 @@ int main(int argc, char *argv[]) {
         size_t len = 0;
         ssize_t read;
 
-        fp = fopen(argv[1], "r");    
+        fp = fopen(argv[1], "r");  
     
         if (fp == NULL) {
-            char error_message[30] = "An error has occurred\n";
-            write(STDERR_FILENO, error_message, strlen(error_message));
-            exit(1); 
+            printError_exit(); 
         }
-        
+
         while ((read = getline(&line, &len, fp)) != -1) {
             line[strlen(line)-1] ='\0';
             shell_execute (line, paths, buffer_size);  
         }
+    }
+    //Multiple batchmode shell files
+    else if ( argc > 2 ) {
+        printError_exit();
     }
     else {
         while(1) {
@@ -179,9 +409,7 @@ int main(int argc, char *argv[]) {
             char* buffer = (char *) malloc(buffer_size * sizeof(char));
 
             if (buffer == NULL) {
-                char error_message[30] = "An error has occurred\n";
-                write(STDERR_FILENO, error_message, strlen(error_message));
-                exit(1);
+                printError_exit();
             }
 
             //get the input argument string
